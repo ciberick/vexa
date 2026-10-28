@@ -144,6 +144,19 @@ export interface VideoRecordingOptions {
   chunkMs?: number;
 }
 
+/**
+ * Chromium window flags for a video take: the meeting page fills the whole display, so the capture
+ * (the entire Xvfb screen) shows Meet and nothing else — no tab strip, URL bar, window manager panel
+ * or black margin. Applied ONLY to video takes. `--test-type` suppresses the unsupported-flag
+ * infobar that the container's sandbox flags would otherwise paint across the recording.
+ */
+export const VIDEO_WINDOW_ARGS: readonly string[] = [
+  '--kiosk',
+  '--window-size=1920,1080',
+  '--window-position=0,0',
+  '--test-type',
+];
+
 /** True when this invocation asked for video (and the platform supports it). */
 export function videoRecordingRequested(inv: Invocation): boolean {
   return !!inv.recordingEnabled && inv.platform === 'google_meet' && inv.videoRecording?.enabled === true;
