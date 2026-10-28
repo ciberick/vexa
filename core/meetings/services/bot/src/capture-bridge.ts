@@ -43,6 +43,7 @@ import type { BotRecordingSink } from './recording.js';
 import type { TelemetrySink } from './ports.js';
 import type { RemoteAudioActivityTap } from './aloneness.js';
 import { createTtsPlayback } from './tts-playback.js';
+import { VIDEO_WINDOW_ARGS, videoRecordingRequested } from './video-recording.js';
 
 /** Float32 PCM → base64 of its little-endian bytes — the EXACT codec wire payload, so a stored
  *  captured-signal.v1 frame round-trips through @vexa/capture-codec (encode→decode→same PCM). */
@@ -592,7 +593,10 @@ export async function launchBrowser(inv: Invocation): Promise<BrowserSession> {
   // getAuthenticatedBrowserArgs() is the minimal clean set remote-browser uses for signed-in
   // joins; getJoinBrowserArgs() adds the fake-device / autoplay flags the join lane needs. The
   // join args win on conflict (later wins in Chromium arg parsing).
-  const args = [...getAuthenticatedBrowserArgs(), ...getJoinBrowserArgs()];
+  const args = [
+    ...getAuthenticatedBrowserArgs(), ...getJoinBrowserArgs(),
+    ...(videoRecordingRequested(inv) ? VIDEO_WINDOW_ARGS : []),   // video takes: Meet fills the display
+  ];
   const { context, page } = await launchPersistentBrowser({ dataDir, args });
 
   // Voice-agent gate the page reads to decide whether to keep the mic hot (production parity).

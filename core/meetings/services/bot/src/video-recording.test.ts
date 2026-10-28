@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
-  VideoRecordingSink, startVideoRecording, videoRecordingRequested,
+  VIDEO_WINDOW_ARGS, VideoRecordingSink, startVideoRecording, videoRecordingRequested,
   type VideoChunkUpload,
 } from './video-recording.js';
 import type { Invocation } from './config.js';
@@ -31,6 +31,10 @@ async function run() {
     !videoRecordingRequested(inv({ videoRecording: { enabled: false } })) &&
     !videoRecordingRequested(inv({ recordingEnabled: false })) &&
     !videoRecordingRequested(inv({ platform: 'zoom' })));
+
+  check('video window args fill the 1920x1080 display from the origin, kiosk (no browser chrome)',
+    VIDEO_WINDOW_ARGS.includes('--kiosk') && VIDEO_WINDOW_ARGS.includes('--window-size=1920,1080') &&
+    VIDEO_WINDOW_ARGS.includes('--window-position=0,0'));
 
   // ── ordered, hashed delivery ──
   {
