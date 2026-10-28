@@ -69,7 +69,11 @@ function defaultChunkUploader(inv: Invocation, log: (m: string) => void): ChunkU
       log(`recording: no recordingUploadUrl — chunk ${seq} (${bytes.length}B, isFinal=${isFinal}) NOT uploaded`);
       return;
     }
-    await svc.uploadChunk(url, token, Buffer.from(bytes), seq, isFinal, format);
+    // On a video take the audio medium names the take's full medium set, so the server completes the
+    // recording only after BOTH finish. Audio-only invocations upload exactly as before.
+    const expectedMediaTypes = inv.videoRecording?.enabled ? ['audio', 'video'] : undefined;
+    await svc.uploadChunk(url, token, Buffer.from(bytes), seq, isFinal, format,
+      expectedMediaTypes ? { expectedMediaTypes } : undefined);
   };
 }
 

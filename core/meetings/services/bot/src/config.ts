@@ -47,6 +47,11 @@ export function isPerTrackLanePlatform(p: Platform | string): boolean {
   return p === 'zoom';
 }
 
+export interface VideoRecording {
+  enabled: boolean;
+  fps?: number;
+}
+
 export interface AutomaticLeave {
   waitingRoomTimeout?: number;
   noOneJoinedTimeout?: number;
@@ -82,6 +87,7 @@ export interface Invocation {
   recordingEnabled?: boolean;
   captureSignalEnabled?: boolean;
   captureModes?: string[];
+  videoRecording?: VideoRecording;
   recordingUploadUrl?: string;
   // ── lifecycle timeouts ──
   automaticLeave?: AutomaticLeave;

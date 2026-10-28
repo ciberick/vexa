@@ -99,7 +99,8 @@ RUN cd /build && node core/meetings/services/bot/warm-hf-cache.mjs
 # ------------------------------------------------------------------------------
 FROM vexa/meet-join-env:dev AS runtime
 
-# The bot's OWN runtime deps NOT in the meet-join env: PulseAudio (the speak/TTS
+# The bot's OWN runtime deps NOT in the meet-join env: ffmpeg (the opt-in screen+audio recording
+# stream: x11grab + pulse → VP9/Opus WebM), PulseAudio (the speak/TTS
 # + capture audio chain), fluxbox (a WM for the X11 session), and the aws CLI —
 # the authenticated-bot session store (@vexa/remote-browser session-store.ts)
 # shells out to `aws s3` to restore the signed-in profile before launch and write
@@ -114,6 +115,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
        pulseaudio \
+       ffmpeg \
        fluxbox \
        socat \
        ca-certificates \

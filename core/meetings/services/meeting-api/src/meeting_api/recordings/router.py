@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from typing import Optional
@@ -22,6 +23,7 @@ from .ports import RecordingRepo, Storage
 from .deletion import MeetingNotTerminal, delete_owned_recording
 from .service import (
     SIGNAL_MEDIA_TYPE,
+    ChunkConflict,
     InvalidSignalTape,
     SessionNotFound,
     _verify_meeting_token,
@@ -237,6 +239,12 @@ def build_router(
         is_final = is_final if is_final is not None else bool(meta.get("is_final", True))
         duration_seconds = duration_seconds if duration_seconds is not None else meta.get("duration_seconds")
         sample_rate = sample_rate if sample_rate is not None else meta.get("sample_rate")
+        expected_media_types = meta.get("expected_media_types")
+        if expected_media_types is not None and not (
+            isinstance(expected_media_types, list) and all(isinstance(t, str) for t in expected_media_types)
+        ):
+            raise HTTPException(status_code=422, detail="expected_media_types must be a list of strings")
+        declared_sha = meta.get("checksum_sha256")
 
         # Auth: accept either the INTERNAL_API_SECRET (the bot's internal upload uses it, like the
         # lifecycle callback; meeting is scoped by session_uid) OR a MeetingToken (carries its meeting_id).
@@ -253,6 +261,9 @@ def build_router(
             token_meeting_id = int(claims["meeting_id"])
 
         data = await file.read()
+        if declared_sha and hashlib.sha256(data).hexdigest() != str(declared_sha).lower():
+            # The bytes that arrived are not the bytes the bot hashed: refuse, the bot retries.
+            raise HTTPException(status_code=422, detail="checksum_sha256 does not match the uploaded bytes")
         try:
             receipt = await upload_chunk(
                 repo, storage,
@@ -261,9 +272,12 @@ def build_router(
                 media_type=media_type, media_format=media_format,
                 chunk_seq=chunk_seq, is_final=is_final,
                 duration_seconds=duration_seconds, sample_rate=sample_rate,
+                expected_media_types=expected_media_types,
             )
         except SessionNotFound as e:
             raise HTTPException(status_code=404, detail=str(e))
+        except ChunkConflict as e:
+            raise HTTPException(status_code=409, detail=str(e))
         return JSONResponse(content=receipt)
 
     @router.get("/recordings")

@@ -15,6 +15,9 @@
  */
 export * from "./audio-pipeline";          // UnifiedRecordingPipeline, MediaRecorderCapture, PulseAudioCapture, ChunkSink
 export { RecordingService } from "./recording";
+export type { ChunkUploadOptions } from "./recording";
+export { VideoStreamRecorder, ByteChunker, buildVideoStreamArgs, normalizeFps, VIDEO_FPS_DEFAULT, VIDEO_FPS_MAX } from "./video-stream";
+export type { VideoStreamConfig, VideoStreamRecorderOptions, ByteChunkerOptions } from "./video-stream";
 export { VideoRecordingService } from "./video-recording";
 export { setLoggers } from "./log";
 export { buildRecordingMaster } from "./recording-codec";   // recording.v1 master codec; Python twin = meeting-api/recording_codec.py
