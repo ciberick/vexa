@@ -32,6 +32,7 @@ import { createRedisActsSource, redisActsClientFrom } from './adapters/acts-redi
 import { createBrowserJoinDriver } from './join-driver.js';
 import { createBotPipeline, createLivePipeline, createTranscribe, serr, type BotPipeline } from './pipeline.js';
 import { createBotRecordingSink } from './recording.js';
+import { startVideoRecording, videoRecordingRequested } from './video-recording.js';
 import { createCaptureSignalRecorder, startBotLogSidecar, wrapTranscribeWithTap, wrapTranscriptWithSnapshot, type CaptureSignalRecorder } from './telemetry.js';
 import { uploadSignalTapes } from './signal-upload.js';
 import { createSttFaultReporter } from './stt-faults.js';
@@ -231,6 +232,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
   console.log(`[bot] aloneness: silence adapter + deaf-capture guard enabled (window_ms=${aloneSilenceWindowMs})`);
   if (speakerStreamConfig) console.log(`[bot] speaker-stream tuning enabled: ${JSON.stringify(speakerStreamConfig)}`);
 
+  // Video takes route Chromium's output to the dedicated sink the recorder monitors (entrypoint.sh);
+  // set BEFORE the launch so the browser process inherits it. Other invocations are untouched.
+  if (videoRecordingRequested(inv)) process.env.PULSE_SINK = 'meeting_sink';
   try {
     session = await launchBrowser(inv);                                   // L4 (O6/VM)
     join = createBrowserJoinDriver(session.page, inv);
@@ -288,7 +292,14 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
     // throwing into the orchestrator's leave-on-fail backstop (which would hang the bot up).
     pipeline = createLivePipeline({
       startCapture: () => startCaptureBridge(sess.page, inv, bp, signalRecorder?.sink, publishChat, remoteAudioActivity),   // on the live meeting page
-      startRecording: rec ? () => startRecording(sess.page, inv, rec) : undefined,          // MediaRecorder → recording.v1
+      startRecording: rec ? async () => {
+        const stopAudio = await startRecording(sess.page, inv, rec);                         // MediaRecorder → recording.v1
+        if (!videoRecordingRequested(inv)) return stopAudio;
+        // Opt-in screen+audio stream. Best-effort: a video start failure leaves audio + transcript intact.
+        const stopVideo = await startVideoRecording({ inv, log: (m) => console.log(`[bot] ${m}`) })
+          .catch((e) => { console.error(`[bot] video recording failed to start: ${String(e)}`); return async () => { /* none */ }; });
+        return async () => { await stopVideo(); await stopAudio(); };
+      } : undefined,
       engine: bp,
       onFault: (stage, e) => {
         console.error(`[bot] live-pipeline: ${stage} failed (non-fatal, bot stays seated): ${serr(e)}`);

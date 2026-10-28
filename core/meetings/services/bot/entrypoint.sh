@@ -31,6 +31,10 @@ pactl load-module module-null-sink sink_name=tts_sink \
   sink_properties=device.description="TTSAudioSink" 2>/dev/null || true
 pactl load-module module-remap-source master=tts_sink.monitor source_name=virtual_mic \
   source_properties=device.description="VirtualMicrophone" 2>/dev/null || true
+# Meeting-audio sink for video takes: the bot routes Chromium's output here (PULSE_SINK) and the
+# recorder captures meeting_sink.monitor. A null sink nobody uses costs nothing otherwise.
+pactl load-module module-null-sink sink_name=meeting_sink \
+  sink_properties=device.description="MeetingAudioSink" 2>/dev/null || true
 pactl set-default-source virtual_mic 2>/dev/null || true
 pactl set-sink-mute tts_sink 1 2>/dev/null || true
 pactl set-source-mute virtual_mic 1 2>/dev/null || true

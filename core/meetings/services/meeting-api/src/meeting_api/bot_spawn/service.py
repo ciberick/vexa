@@ -418,6 +418,7 @@ async def request_bot(
     task: Optional[str] = None,
     transcription_tier: str = "realtime",
     recording_enabled: bool = False,
+    video_recording: Optional[dict] = None,
     transcribe_enabled: bool = True,
     automatic_leave: Optional[dict] = None,
     continue_meeting: bool = False,
@@ -763,6 +764,7 @@ async def request_bot(
         transcription_model=transcription_model,
         recording_enabled=recording_enabled,
         capture_modes=(["audio", "video"] if recording_enabled else None),
+        video_recording=(video_recording if recording_enabled else None),
         # O-TEL-1: the tape is INDEPENDENT of recording_enabled — a meeting the user never asked to
         # record still yields a fixture. Both ride the same upload endpoint below.
         capture_signal_enabled=capture_signal_enabled,

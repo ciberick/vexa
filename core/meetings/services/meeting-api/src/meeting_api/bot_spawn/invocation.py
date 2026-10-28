@@ -146,6 +146,7 @@ def build_invocation(
     transcribe_enabled: bool = True,
     recording_enabled: bool = False,
     capture_modes: Optional[list[str]] = None,
+    video_recording: Optional[dict] = None,
     capture_signal_enabled: Optional[bool] = None,
     recording_upload_url: Optional[str] = None,
     transcription_service_url: Optional[str] = None,
@@ -182,6 +183,9 @@ def build_invocation(
         "transcriptionModel": transcription_model,
         "recordingEnabled": recording_enabled,
         "captureModes": capture_modes,
+        # Opt-in screen+audio recording (sealed invocation.v1 ``videoRecording``). The bot starts the
+        # video stream ONLY from this field — ``captureModes`` is not the gate. None-stripped otherwise.
+        "videoRecording": video_recording,
         # O-TEL-1 (sealed invocation.v1 field): tee the raw captured-signal.v1 stream to durable
         # storage for offline replay. Orthogonal to recordingEnabled — the transcript and recording
         # paths are unaffected either way. None is STRIPPED below, which leaves the bot on its own

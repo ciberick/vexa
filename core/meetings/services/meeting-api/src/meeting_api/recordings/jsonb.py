@@ -42,12 +42,18 @@ def apply_chunk_to_recording(
     is_final: bool,
     duration_seconds: Optional[float],
     sample_rate: Optional[int],
+    expected_media_types: Optional[list[str]] = None,
 ) -> tuple[dict, bool]:
     """Fold one uploaded chunk into the recording payload.
 
     ``existing_rec`` is the prior recording dict for this (session_uid, source=bot), or ``None`` to
     start fresh. Returns ``(rec_payload, status_transitioned_to_completed)``; the caller places
     ``rec_payload`` into ``data['recordings']`` and commits.
+
+    ``expected_media_types`` (optional) names every medium the take will finish. When present the
+    recording completes only once EACH of them has delivered its final marker — otherwise the first
+    medium to finish (audio, typically) would flip the whole recording COMPLETED while video is
+    still uploading. Absent → the historical rule: the first final completes it.
     """
     if existing_rec is None:
         rec_payload: dict[str, Any] = {
@@ -56,15 +62,20 @@ def apply_chunk_to_recording(
             "user_id": user_id,
             "session_uid": session_uid,
             "source": _SOURCE_BOT,
-            "status": _STATUS_COMPLETED if is_final else _STATUS_IN_PROGRESS,
+            "status": _STATUS_COMPLETED if (is_final and not expected_media_types) else _STATUS_IN_PROGRESS,
             "created_at": _now_iso(),
-            "completed_at": _now_iso() if is_final else None,
+            "completed_at": _now_iso() if (is_final and not expected_media_types) else None,
             "media_files": [],
         }
         was_completed = False
     else:
         rec_payload = dict(existing_rec)
         was_completed = rec_payload.get("status") == _STATUS_COMPLETED
+
+    if expected_media_types:
+        merged = list(rec_payload.get("expected_media_types") or [])
+        merged += [t for t in expected_media_types if t not in merged]
+        rec_payload["expected_media_types"] = merged
 
     status_transitioned = False
     prior_media_files = list(rec_payload.get("media_files") or [])
@@ -124,7 +135,11 @@ def apply_chunk_to_recording(
         "video": f"/recordings/{recording_id}/master?type=video" if "video" in _types_present else None,
     }
 
-    if is_final:
+    expected = rec_payload.get("expected_media_types") or []
+    all_expected_final = all(
+        any(mf["type"] == t and mf.get("is_final") for mf in media_files) for t in expected
+    )
+    if is_final and all_expected_final:
         rec_payload["status"] = _STATUS_COMPLETED
         rec_payload["completed_at"] = _now_iso()
         status_transitioned = not was_completed

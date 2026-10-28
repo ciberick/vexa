@@ -83,6 +83,37 @@ PASSCODE_ALIASES = (
 
 
 
+VIDEO_RECORDING_FPS = (5, 10)
+VIDEO_RECORDING_PLATFORM = "google_meet"
+
+
+def _resolve_video_recording(value: Optional[object], *, platform: str,
+                             recording_enabled: bool) -> Optional[dict]:
+    """The opt-in ``video_recording`` request object → the invocation's ``videoRecording`` (or None).
+
+    Absent / ``enabled: false`` → None (audio-only, exactly as before). An enabled request is
+    refused with 422 — never silently downgraded — when the platform is not Google Meet, when
+    recording itself is off, or when ``fps`` is outside the supported set."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("enabled"), bool):
+        raise HTTPException(status_code=422,
+                            detail="video_recording must be an object with a boolean 'enabled'")
+    if not value["enabled"]:
+        return None
+    if platform != VIDEO_RECORDING_PLATFORM:
+        raise HTTPException(status_code=422,
+                            detail=f"video_recording is only supported on {VIDEO_RECORDING_PLATFORM}")
+    if not recording_enabled:
+        raise HTTPException(status_code=422,
+                            detail="video_recording requires recording_enabled")
+    fps = value.get("fps", VIDEO_RECORDING_FPS[0])
+    if isinstance(fps, bool) or fps not in VIDEO_RECORDING_FPS:
+        raise HTTPException(status_code=422,
+                            detail=f"video_recording.fps must be one of {list(VIDEO_RECORDING_FPS)}")
+    return {"enabled": True, "fps": int(fps)}
+
+
 def _resolve_recording_enabled(value: Optional[object]) -> bool:
     """Recording default for POST /bots: the HTTP skin over the shared ``resolve_spawn_flag`` —
     an explicit request value wins, else the ``RECORDING_ENABLED`` env (default ``true``), so a
@@ -444,6 +475,9 @@ def build_router(
             )
 
         transcribe_enabled = _resolve_transcribe_enabled(body.get("transcribe_enabled"))
+        recording_enabled = _resolve_recording_enabled(body.get("recording_enabled"))
+        video_recording = _resolve_video_recording(
+            body.get("video_recording"), platform=platform, recording_enabled=recording_enabled)
 
         # THE NAME THIS PERSON'S BOT SHOWS UP AS — an explicit name on THIS request, and nothing
         # else here. `request_bot` fills in this person's default from identity out of the bot
@@ -467,7 +501,8 @@ def build_router(
                 language=body.get("language"),
                 task=body.get("task"),
                 transcription_tier=body.get("transcription_tier", "realtime"),
-                recording_enabled=_resolve_recording_enabled(body.get("recording_enabled")),
+                recording_enabled=recording_enabled,
+                video_recording=video_recording,
                 transcribe_enabled=transcribe_enabled,
                 automatic_leave=_resolve_automatic_leave(body.get("automatic_leave")),
                 # P3c — continue_meeting is accepted off the OPEN api.v1 request body (MeetingCreate

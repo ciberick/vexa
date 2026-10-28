@@ -14,6 +14,16 @@
         "everyoneLeftTimeout": { "type": "integer", "default": 120000 }
       }
     },
+    "VideoRecording": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "description": "opt-in screen+audio recording (Google Meet only); requires recordingEnabled",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "fps": { "type": "integer", "minimum": 1, "maximum": 10, "default": 5 }
+      }
+    },
     "Invocation": {
       "type": "object",
       "additionalProperties": false,
@@ -42,6 +52,7 @@
         "recordingEnabled": { "type": "boolean" },
         "captureSignalEnabled": { "type": "boolean", "description": "tee the raw captured-signal.v1 stream (audio frames + speaker events) to durable storage for offline replay (O-TEL-1); the transcript/recording paths are unaffected either way" },
         "captureModes": { "type": "array", "items": { "type": "string" } },
+        "videoRecording": { "$ref": "#/$defs/VideoRecording" },
         "recordingUploadUrl": { "type": "string", "format": "uri", "description": "recording sink" },
         "automaticLeave": { "$ref": "#/$defs/AutomaticLeave" },
         "reconnectionIntervalMs": { "type": "integer" },

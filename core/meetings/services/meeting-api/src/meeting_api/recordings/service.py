@@ -15,6 +15,7 @@ golden-locked — this module only orchestrates the IO + the JSONB bookkeeping a
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -35,6 +36,27 @@ from .ports import RecordingRepo, Storage
 _CONTENT_TYPES = {"webm": "video/webm", "wav": "audio/wav", "jsonl": "application/x-ndjson",
                   "txt": "text/plain; charset=utf-8"}
 
+# Media types whose chunk uploads are receipted: a repeated (seq, sha256, bytes) is a no-op that
+# returns the stored receipt; the same seq with other bytes is a 409. Audio keeps its historical
+# overwrite-by-key behaviour.
+RECEIPTED_MEDIA_TYPES = ("video",)
+
+
+def _receipt_of(rec: Optional[dict], media_type: str, chunk_seq: int) -> Optional[dict]:
+    mf = next((m for m in (rec or {}).get("media_files", []) if m.get("type") == media_type), None)
+    return ((mf or {}).get("chunk_receipts") or {}).get(str(chunk_seq))
+
+
+def _check_receipt(prev: Optional[dict], sha: str, size: int) -> bool:
+    """True → an identical earlier upload (answer from the receipt); False → no receipt yet;
+    raises ``ChunkConflict`` when the earlier bytes differ."""
+    if prev is None:
+        return False
+    if prev.get("sha256") == sha and prev.get("bytes") == size:
+        return True
+    raise ChunkConflict("chunk_seq already stored with different content")
+
+
 # The ``media_type`` that means "a captured-signal tape, not playable media" (O-TEL-1).
 SIGNAL_MEDIA_TYPE = "signal"
 SIGNAL_MEDIA_FORMAT = "jsonl"
@@ -50,6 +72,10 @@ def _now_iso() -> str:
 
 class SessionNotFound(Exception):
     """The upload's ``session_uid`` matches no MeetingSession AND it is the final chunk → 404."""
+
+
+class ChunkConflict(Exception):
+    """A repeated (session, media, seq) arrived with DIFFERENT bytes → 409. The first bytes win."""
 
 
 class InvalidSignalTape(Exception):
@@ -69,6 +95,7 @@ async def upload_chunk(
     is_final: bool = True,
     duration_seconds: Optional[float] = None,
     sample_rate: Optional[int] = None,
+    expected_media_types: Optional[list[str]] = None,
 ) -> dict:
     """Process ONE recording chunk upload. ``token_meeting_id`` is the verified MeetingToken's
     meeting_id (the route verifies the token before calling this).
@@ -98,6 +125,20 @@ async def upload_chunk(
     )
     recording_id = existing_rec["id"] if existing_rec else new_recording_numeric_id()
 
+    receipted = media_type in RECEIPTED_MEDIA_TYPES
+    sha = hashlib.sha256(data).hexdigest()
+    if receipted and _check_receipt(_receipt_of(existing_rec, media_type, chunk_seq), sha, len(data)):
+        # Repeat of an upload we already stored (a lost response): answer from the receipt — no
+        # storage write, no counter bump.
+        mf = next((m for m in existing_rec["media_files"] if m["type"] == media_type), {})
+        return {
+            "recording_id": existing_rec["id"], "media_file_id": mf.get("id"),
+            "storage_path": chunk_storage_key(
+                user_id=owner or 0, recording_id=existing_rec["id"], session_uid=session_uid,
+                media_type=media_type, media_format=media_format, chunk_seq=chunk_seq),
+            "status": existing_rec["status"], "chunk_seq": chunk_seq, "sha256": sha, "duplicate": True,
+        }
+
     # Upload the chunk to object storage (idempotent by key; OUTSIDE the row lock).
     key = chunk_storage_key(
         user_id=owner or 0, recording_id=recording_id, session_uid=session_uid,
@@ -114,13 +155,23 @@ async def upload_chunk(
             (r for r in recs if r.get("session_uid") == session_uid and r.get("source") == "bot"), None
         )
         rid = ex["id"] if ex else recording_id
+        if receipted and _check_receipt(_receipt_of(ex, media_type, chunk_seq), sha, len(data)):
+            return recs, (ex, False)   # a concurrent identical upload won the race: nothing to fold
         payload, transitioned_ = apply_chunk_to_recording(
             ex,
             recording_id=rid, meeting_id=meeting_id, user_id=owner or 0,
             session_uid=session_uid, media_type=media_type, media_format=media_format,
             storage_path=key, file_size=len(data), chunk_seq=chunk_seq, is_final=is_final,
             duration_seconds=duration_seconds, sample_rate=sample_rate,
+            expected_media_types=expected_media_types,
         )
+        if receipted:
+            old_mf = next((m for m in (ex or {}).get("media_files", []) if m.get("type") == media_type), {})
+            new_mf = next(m for m in payload["media_files"] if m["type"] == media_type)
+            new_mf["chunk_receipts"] = {
+                **(old_mf.get("chunk_receipts") or {}),
+                str(chunk_seq): {"sha256": sha, "bytes": len(data)},
+            }
         others = [r for r in recs if r.get("id") != rid]
         return others + [payload], (payload, transitioned_)
 
@@ -140,6 +191,7 @@ async def upload_chunk(
         "storage_path": key,
         "status": rec_payload["status"],
         "chunk_seq": chunk_seq,
+        "sha256": sha,
     }
 
 

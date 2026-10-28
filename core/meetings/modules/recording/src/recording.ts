@@ -5,6 +5,20 @@ import { log, logJSON } from './log';
 import http from 'http';
 import https from 'https';
 
+/** Optional wire metadata for a chunk that is not the historical audio-only upload. */
+export interface ChunkUploadOptions {
+  /** 'audio' (default, omitted from the wire) | 'video'. */
+  mediaType?: string;
+  /** Every medium this take is expected to finish; the server completes the recording only when all are final. */
+  expectedMediaTypes?: string[];
+  /** SHA-256 (hex) of the chunk bytes — the server re-computes it; a mismatch on a repeated seq is a 409. */
+  checksumSha256?: string;
+  /** Treat an HTTP 200 whose body reports `status: pending` as a failed attempt (no durable receipt). */
+  requireStored?: boolean;
+  /** Additive metadata fields (e.g. video geometry). */
+  extra?: Record<string, unknown>;
+}
+
 /**
  * RecordingService handles accumulating audio data and producing a WAV file.
  * Works in Node.js context — used directly for Zoom (native audio callback),
@@ -226,8 +240,10 @@ export class RecordingService {
     chunkSeq: number,
     isFinal: boolean,
     format: string = 'webm',
+    opts: ChunkUploadOptions = {},
   ): Promise<void> {
     const uploadTimeoutMs = 30_000;
+    const mediaType = opts.mediaType ?? 'audio';
     const durationSeconds = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : undefined;
 
     const boundary = `----VexaRecordingChunk${Date.now()}${chunkSeq}`;
@@ -241,6 +257,12 @@ export class RecordingService {
       file_size_bytes: chunkData.length,
       chunk_seq: chunkSeq,
       is_final: isFinal,
+      // Additive: only a non-audio medium (or an explicit multi-medium take) names itself on the wire;
+      // an audio-only upload keeps the exact historical metadata.
+      ...(opts.mediaType ? { media_type: opts.mediaType } : {}),
+      ...(opts.expectedMediaTypes ? { expected_media_types: opts.expectedMediaTypes } : {}),
+      ...(opts.checksumSha256 ? { checksum_sha256: opts.checksumSha256 } : {}),
+      ...(opts.extra ?? {}),
     });
 
     const parts: Buffer[] = [];
@@ -249,7 +271,7 @@ export class RecordingService {
     parts.push(Buffer.from('\r\n'));
     parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="chunk_seq"\r\n\r\n${chunkSeq}\r\n`));
     parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="is_final"\r\n\r\n${isFinal ? 'true' : 'false'}\r\n`));
-    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.${chunkSeq}.${format}"\r\nContent-Type: audio/${format}\r\n\r\n`));
+    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.${chunkSeq}.${format}"\r\nContent-Type: ${mediaType === 'video' ? 'video' : 'audio'}/${format}\r\n\r\n`));
     parts.push(chunkData);
     parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
 
@@ -258,7 +280,11 @@ export class RecordingService {
     const maxRetries = 2;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await this._sendUpload(callbackUrl, token, boundary, body, uploadTimeoutMs);
+        const responseBody = await this._sendUpload(callbackUrl, token, boundary, body, uploadTimeoutMs);
+        if (opts.requireStored && /"status"\s*:\s*"pending"/.test(responseBody)) {
+          // HTTP 200 whose body says the session is not known yet is NOT a durable receipt — retry.
+          throw new Error('upload receipt is pending (session not resolved yet)');
+        }
         logJSON({
           level: "info",
           msg: "[Recording] Chunk uploaded",
@@ -308,7 +334,7 @@ export class RecordingService {
     }
   }
 
-  private _sendUpload(callbackUrl: string, token: string, boundary: string, body: Buffer, timeoutMs: number): Promise<void> {
+  private _sendUpload(callbackUrl: string, token: string, boundary: string, body: Buffer, timeoutMs: number): Promise<string> {
     return new Promise((resolve, reject) => {
       const url = new URL(callbackUrl);
       const transport = url.protocol === 'https:' ? https : http;
@@ -337,7 +363,7 @@ export class RecordingService {
                 recording_meeting_id: this.meetingId,
                 recording_session_uid: this.sessionUid,
               });
-              resolve();
+              resolve(responseData);
             } else {
               // v0.10.5 Pack G.1 — capture status code distinct from
               // message body so operators can route 4xx (caller bug)
