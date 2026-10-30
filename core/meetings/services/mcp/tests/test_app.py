@@ -77,6 +77,38 @@ def test_request_meeting_bot_with_native_id(client, gateway, auth):
     assert body["bot_name"] == "Vexa"
 
 
+def test_request_meeting_bot_forwards_video_recording(client, gateway, auth):
+    r = client.post(
+        "/request-meeting-bot",
+        headers=auth,
+        json={"native_meeting_id": "abc-defg-hij", "platform": "google_meet",
+              "video_recording": {"enabled": True, "fps": 10}},
+    )
+    assert r.status_code == 200
+    assert gateway.last_json()["video_recording"] == {"enabled": True, "fps": 10}
+
+
+def test_request_meeting_bot_video_recording_without_fps_leaves_the_default_to_meeting_api(client, gateway, auth):
+    client.post(
+        "/request-meeting-bot",
+        headers=auth,
+        json={"meeting_url": "https://meet.google.com/abc-defg-hij", "video_recording": {"enabled": True}},
+    )
+    assert gateway.last_json()["video_recording"] == {"enabled": True}
+
+
+def test_request_meeting_bot_without_video_recording_sends_none(client, gateway, auth):
+    client.post("/request-meeting-bot", headers=auth,
+                json={"native_meeting_id": "abc-defg-hij", "platform": "google_meet"})
+    assert "video_recording" not in gateway.last_json()
+
+
+def test_request_meeting_bot_video_recording_requires_enabled(client, auth):
+    r = client.post("/request-meeting-bot", headers=auth,
+                    json={"native_meeting_id": "abc-defg-hij", "video_recording": {"fps": 5}})
+    assert r.status_code == 422
+
+
 def test_request_meeting_bot_with_url_parses_teams(client, gateway, auth):
     client.post(
         "/request-meeting-bot",

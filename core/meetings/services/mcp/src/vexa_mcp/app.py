@@ -267,6 +267,14 @@ async def get_api_key(
 # ---------------------------
 # Request models
 # ---------------------------
+class VideoRecordingOptions(BaseModel):
+    enabled: bool = Field(..., description="True to record the meeting window as video (with the meeting audio) in addition to the audio recording.")
+    fps: Optional[int] = Field(
+        None,
+        description="Frames per second, 5 or 10 (default 5). Slides and shared screens need no more than 5.",
+    )
+
+
 class RequestMeetingBot(BaseModel):
     meeting_url: Optional[str] = Field(
         None,
@@ -297,6 +305,16 @@ class RequestMeetingBot(BaseModel):
             "- Teams: passcode is the value of the `?p=` parameter in your Teams meeting link.\n"
             "- Zoom: taken from the `?pwd=` parameter of meeting_url; pass meeting_url, not the id.\n"
             "- Jitsi: the room password, when the room is protected (optional)."
+        ),
+    )
+    video_recording: Optional[VideoRecordingOptions] = Field(
+        None,
+        description=(
+            "Opt in to VIDEO recording of the meeting (screen share and slides, with the meeting audio).\n"
+            "Google Meet only, and the deployment must have recording enabled — otherwise the request is\n"
+            "refused with 422, never silently downgraded to audio. Omit it for an audio-only recording.\n"
+            "The video appears under `playback_url.video` of list_recordings / get_recording once the\n"
+            "recording is processed."
         ),
     )
 
@@ -764,6 +782,7 @@ def create_app(
         Request a Vexa bot to join a meeting for transcription.
 
         Provide meeting_url OR native_meeting_id (+ platform, + passcode for Teams).
+        Pass video_recording={"enabled": true} (Google Meet only) to also record the meeting as video.
         Note: after a successful request, it typically takes about 10 seconds for the bot to join.
         """
         url = f"{base_url}/bots"
