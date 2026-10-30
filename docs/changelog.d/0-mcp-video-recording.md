@@ -1,0 +1,1 @@
+- **The MCP `request_meeting_bot` tool can request video recording.** It takes an optional `video_recording: {"enabled": true, "fps": 5}` (Google Meet only; 5 or 10 fps) and forwards it to `POST /bots`; meeting-api's refusals (non-Meet platform, recording disabled, bad fps) come back to the agent as errors rather than a silent audio-only take. Without it nothing changes.

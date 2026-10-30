@@ -85,6 +85,14 @@ def test_server_ships_instructions():
         assert expected in instructions
 
 
+def test_request_meeting_bot_publishes_video_recording():
+    """An agent can only pass what the tool's schema shows it: the video opt-in must be listed."""
+    app = create_app("http://gateway.test",
+                     transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    tool = next(t for t in app.state.mcp.tools if t.name == "request_meeting_bot")
+    assert "video_recording" in tool.inputSchema["properties"]
+
+
 # --- a tool must refuse an argument it does not declare ----------------------
 # Without additionalProperties, fastapi-mcp DROPS an unknown argument before the HTTP call, so a
 # server-side guard never sees it and the tool answers 200 as if it had been honoured. Verified
